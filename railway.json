@@ -1,9 +1,9 @@
 {
   "build": {
-    "builder": "railway-static"
+    "builder": "NIXPACKS"
   },
   "deploy": {
-    "runtime": "python3",
+    "runtime": "V2",
     "startCommand": "uvicorn src.services.main:app --host 0.0.0.0 --port $PORT"
   }
 }
