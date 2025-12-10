@@ -25,13 +25,13 @@ SERVICES_DIR = APP_DIR.parent  # src/services
 SRC_DIR = SERVICES_DIR.parent  # src
 ROOT_DIR = SRC_DIR.parent  # project root
 
-# Load .env.local from project root
-env_path = ROOT_DIR / ".env.local"
+# Load .env from project root
+env_path = ROOT_DIR / ".env"
 if env_path.exists():
     load_dotenv(env_path)
     print(f"✅ Loaded environment from: {env_path}")
 else:
-    print(f"⚠️ No .env.local found at: {env_path}")
+    print(f"⚠️ No .env found at: {env_path}")
     load_dotenv()  # Try to load from system env
 
 MODEL_DIR = SERVICES_DIR / "model"
@@ -318,7 +318,7 @@ def load_artifacts() -> None:
         print(f"✅ Supabase client initialized successfully ({VITE_SUPABASE_URL[:30]}...)")
     else:
         print("⚠️ VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY not set - database features will be limited")
-        print("   Set these in .env.local file or as environment variables")
+        print("   Set these in .env file or as environment variables")
         supabase = None
     
     # Initialize Ollama (no client object needed; we call HTTP endpoint directly)
@@ -366,7 +366,7 @@ def prepare_features(customer_row: Dict[str, Any]) -> pd.DataFrame:
 
 def fetch_customer(customer_id: str) -> Dict[str, Any]:
     if supabase is None:
-        raise HTTPException(status_code=503, detail='Database not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local')
+        raise HTTPException(status_code=503, detail='Database not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env')
     res = supabase.table('customer_profile').select('*').eq('customer_id', customer_id).single().execute()
     if res.data is None:
         raise HTTPException(status_code=404, detail='Customer not found')
@@ -375,7 +375,7 @@ def fetch_customer(customer_id: str) -> Dict[str, Any]:
 
 def fetch_products() -> pd.DataFrame:
     if supabase is None:
-        raise HTTPException(status_code=503, detail='Database not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local')
+        raise HTTPException(status_code=503, detail='Database not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env')
     res = supabase.table('product_catalog').select('*').execute()
     products = res.data or []
     if not products:
