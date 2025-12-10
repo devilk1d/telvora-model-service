@@ -1,8 +1,9 @@
 {
   "build": {
-    "builder": "python"
+    "builder": "railway-static"
   },
   "deploy": {
-    "start": "uvicorn src.services.main:app --host 0.0.0.0 --port 8000"
+    "runtime": "python3",
+    "startCommand": "uvicorn src.services.main:app --host 0.0.0.0 --port $PORT"
   }
 }

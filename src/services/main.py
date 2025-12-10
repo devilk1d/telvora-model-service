@@ -20,10 +20,10 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 
 # ---------- Config ----------
-APP_DIR = Path(__file__).resolve().parent  # src/services/recsys_agentic
-SERVICES_DIR = APP_DIR.parent  # src/services
-SRC_DIR = SERVICES_DIR.parent  # src
-ROOT_DIR = SRC_DIR.parent  # project root
+ROOT_DIR = Path(__file__).resolve().parents[2]    # project root
+SRC_DIR = ROOT_DIR / "src"
+SERVICES_DIR = SRC_DIR / "services"
+APP_DIR = SERVICES_DIR
 
 # Load .env from project root
 env_path = ROOT_DIR / ".env"
