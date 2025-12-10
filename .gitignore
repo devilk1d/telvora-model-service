@@ -1,0 +1,8 @@
+/.venv/
+/.venv310/
+/.github/
+
+# Python cache
+__pycache__/
+*.pyc
+.env.local
