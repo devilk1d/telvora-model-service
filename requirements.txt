@@ -13,7 +13,7 @@ joblib==1.4.2
 
 # Supabase dan dependensi stabil
 supabase==1.0.5
-httpx==0.25.2
+httpx==0.24.1
 httpcore==1.0.4
 anyio==4.0.0
 sniffio==1.3.0
