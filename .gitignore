@@ -5,4 +5,4 @@
 # Python cache
 __pycache__/
 *.pyc
-.env.local
+.env
