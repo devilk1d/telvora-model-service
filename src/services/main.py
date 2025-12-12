@@ -44,6 +44,10 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "")  # Set to empty = disable AI insights
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")  # Optional for cloud/auth endpoints
 
+# Debug: Print loaded env vars
+print(f"DEBUG: VITE_SUPABASE_URL = {VITE_SUPABASE_URL}")
+print(f"DEBUG: VITE_SUPABASE_ANON_KEY = {VITE_SUPABASE_ANON_KEY[:20] if VITE_SUPABASE_ANON_KEY else 'NOT SET'}...")
+
 TOP_N_DEFAULT = 5
 
 # ---------- FastAPI ----------
@@ -318,7 +322,7 @@ def load_artifacts() -> None:
         print(f"✅ Supabase client initialized successfully ({VITE_SUPABASE_URL[:30]}...)")
     else:
         print("⚠️ VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY not set - database features will be limited")
-        print("   Set these in .env file or as environment variables")
+        print("   Set these in .env.local file or as environment variables")
         supabase = None
     
     # Initialize Ollama (no client object needed; we call HTTP endpoint directly)
@@ -326,6 +330,94 @@ def load_artifacts() -> None:
         print(f"✅ Ollama client configured (model: {OLLAMA_MODEL}, base: {OLLAMA_BASE_URL})")
     else:
         print("⚠️ OLLAMA_MODEL not set - AI insights will be disabled")
+
+
+def clean_user_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Data cleaning logic dari notebook Cell 1-2.
+    Konsisten dengan training process.
+    
+    Steps:
+    1. Konversi numeric dengan penanganan comma decimal
+    2. Fix nilai negatif untuk avg_call_duration dan monthly_spend
+    3. Fill NaN dengan 0
+    """
+    numeric_features_list = [
+        'avg_data_usage_gb',
+        'pct_video_usage',
+        'avg_call_duration',
+        'sms_freq',
+        'monthly_spend',
+        'topup_freq',
+        'travel_score',
+        'complaint_count',
+    ]
+
+    cols_fix_negative = ['avg_call_duration', 'monthly_spend']
+
+    for col in numeric_features_list:
+        if col not in df.columns:
+            continue
+
+        # Konversi ke numeric (handle comma decimal)
+        if df[col].dtype == 'object':
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace(',', '.'),
+                errors='coerce'
+            )
+
+        # Fix negatif
+        if col in cols_fix_negative:
+            df[col] = df[col].abs()
+
+        # Fill NaN dengan 0
+        if df[col].isnull().any():
+            df[col] = df[col].fillna(0)
+
+    return df
+
+
+def prepare_features_for_model(df_input: pd.DataFrame, reference_cols: Optional[List[str]] = None) -> pd.DataFrame:
+    """
+    Prepare features dengan konsistensi feature order dari notebook Cell 3-4.
+    
+    Logic:
+    1. Drop customer_id dan target_offer
+    2. Pastikan urutan fitur konsisten
+    3. Fill missing columns dengan default value (median/mode)
+    """
+    df = df_input.copy()
+
+    # List fitur yang dipakai model (harus konsisten dengan training)
+    if reference_cols is None:
+        reference_cols = [
+            'plan_type',
+            'device_brand',
+            'avg_data_usage_gb',
+            'pct_video_usage',
+            'avg_call_duration',
+            'sms_freq',
+            'monthly_spend',
+            'topup_freq',
+            'travel_score',
+            'complaint_count',
+        ]
+
+    # Pastikan semua kolom yang dibutuhkan ada
+    # Jika tidak ada, use default value (0 untuk numeric, 'Prepaid' untuk categorical)
+    for col in reference_cols:
+        if col not in df.columns:
+            if col in ['plan_type']:
+                df[col] = 'Prepaid'
+            elif col == 'device_brand':
+                df[col] = 'Samsung'
+            else:
+                df[col] = 0
+
+    # Return hanya kolom yang ada di reference_cols, dengan urutan yang sama
+    X = df[reference_cols]
+
+    return X
 
 
 def abs_if_needed(df: pd.DataFrame, col: str) -> None:
@@ -339,34 +431,18 @@ def prepare_features(customer_row: Dict[str, Any]) -> pd.DataFrame:
     # Columns inferred from training logic
     df = pd.DataFrame([customer_row])
 
-    # Ensure numeric conversions similar to training
-    numeric_features_list = [
-        'avg_data_usage_gb', 'pct_video_usage', 'avg_call_duration', 'sms_freq',
-        'monthly_spend', 'topup_freq', 'travel_score', 'complaint_count'
-    ]
+    # Apply cleaning (comma decimal, negatives, NaN fill)
+    df = clean_user_dataframe(df)
 
-    # Replace comma decimal and coerce
-    for col in numeric_features_list:
-        if col in df.columns:
-            if isinstance(df[col].iloc[0], str):
-                df[col] = df[col].astype(str).str.replace(',', '.')
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    # Prepare features with consistent order
+    X = prepare_features_for_model(df)
 
-    # Apply abs fix for negatives
-    abs_if_needed(df, 'avg_call_duration')
-    abs_if_needed(df, 'monthly_spend')
-
-    # Drop ID and target-like cols if present
-    for drop_col in ('customer_id', 'target_offer', 'target_encoded'):
-        if drop_col in df.columns:
-            df = df.drop(columns=[drop_col])
-
-    return df
+    return X
 
 
 def fetch_customer(customer_id: str) -> Dict[str, Any]:
     if supabase is None:
-        raise HTTPException(status_code=503, detail='Database not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env')
+        raise HTTPException(status_code=503, detail='Database not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local')
     res = supabase.table('customer_profile').select('*').eq('customer_id', customer_id).single().execute()
     if res.data is None:
         raise HTTPException(status_code=404, detail='Customer not found')
@@ -375,7 +451,7 @@ def fetch_customer(customer_id: str) -> Dict[str, Any]:
 
 def fetch_products() -> pd.DataFrame:
     if supabase is None:
-        raise HTTPException(status_code=503, detail='Database not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env')
+        raise HTTPException(status_code=503, detail='Database not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local')
     res = supabase.table('product_catalog').select('*').execute()
     products = res.data or []
     if not products:
@@ -699,7 +775,7 @@ def infer_analytic(payload: AnalyticRequest):
     customer_row = fetch_customer(payload.customer_id)
     X = prepare_features(customer_row)
 
-    # Predict label
+    # Predict label (PURE ML - ignore DB target_offer)
     pred_idx = clf.predict(X)
     pred_label = label_encoder.inverse_transform(pred_idx)[0]
     user_category = TARGET_TO_CATEGORY_MAP.get(pred_label, "Unknown")
@@ -748,6 +824,90 @@ def infer_analytic(payload: AnalyticRequest):
         generated_at=datetime.now(timezone.utc).isoformat(),
         ai_insights=ai_insights,
     )
+
+
+@app.post("/infer/predict-user")
+def predict_new_user(payload: AnalyticRequest):
+    """
+    Predict target offer untuk user BARU (tanpa ID di database).
+    
+    Endpoint ini menerima customer profile dalam payload dan melakukan pure ML prediction.
+    Tidak membaca dari database, 100% pure ML result.
+    
+    Request body contoh:
+    {
+        "customer_id": "new_user_001",  (optional, untuk logging)
+        "plan_type": "Prepaid",
+        "device_brand": "Samsung",
+        "avg_data_usage_gb": 12.5,
+        "pct_video_usage": 0.6,
+        "avg_call_duration": 30,
+        "sms_freq": 10,
+        "monthly_spend": 50000,
+        "topup_freq": 3,
+        "travel_score": 2,
+        "complaint_count": 0
+    }
+    
+    Response:
+    {
+        "pred_target_offer": "Data Booster",
+        "recommended_products": [list of product names],
+        "churn_probability": 0.15,
+        "churn_risk_level": "low"
+    }
+    """
+    if clf is None or label_encoder is None or global_averages is None:
+        raise HTTPException(status_code=500, detail='Model not loaded')
+
+    try:
+        # Prepare features dari request payload
+        # Payload berisi dict dengan customer profile (bukan customer_id dari DB)
+        user_profile = payload.dict()  # Convert Pydantic model to dict
+        
+        # Buat DataFrame 1 baris
+        df_new = pd.DataFrame([user_profile])
+        
+        # Cleaning (konsisten dengan training)
+        df_new = clean_user_dataframe(df_new)
+        
+        # Prepare X dengan feature order konsisten
+        X_new = prepare_features_for_model(df_new)
+        
+        # Prediksi
+        pred_idx = clf.predict(X_new)
+        pred_label = label_encoder.inverse_transform(pred_idx)[0]
+        
+        # Churn probability
+        class_list = list(label_encoder.classes_)
+        try:
+            idx_ret = class_list.index('Retention Offer')
+            proba_all = clf.predict_proba(X_new)
+            churn_proba = float(proba_all[0][idx_ret])
+        except Exception:
+            churn_proba = 0.0
+        
+        # Churn risk level (rules-based)
+        churn_risk = compute_churn_bucket(pred_label, user_profile, global_averages)
+        
+        # Rekomendasi produk
+        products_df = fetch_products()
+        items = recommend_products(pred_label, user_profile, products_df, 5)
+        
+        return {
+            'pred_target_offer': pred_label,
+            'user_category': TARGET_TO_CATEGORY_MAP.get(pred_label, "Unknown"),
+            'recommended_products': [item.product_name for item in items],
+            'churn_probability': round(churn_proba, 3),
+            'churn_risk_level': churn_risk,
+            'generated_at': datetime.now(timezone.utc).isoformat()
+        }
+    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f'Invalid input: {str(e)}')
+    except Exception as e:
+        print(f"Error in predict_new_user: {e}")
+        raise HTTPException(status_code=500, detail=f'Prediction failed: {str(e)}')
 
 
 @app.post("/infer/simulate-product", response_model=ProductSimulationResponse)
