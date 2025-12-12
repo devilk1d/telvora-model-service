@@ -469,6 +469,7 @@ def fetch_products() -> pd.DataFrame:
 def compute_churn_bucket(pred_label: str, user_row: Dict[str, Any], global_avgs: Dict[str, float]) -> str:
     """
     Compute churn risk bucket RULES-BASED (sesuai notebook Cell 5 logic).
+    Returns: risk_label ('high', 'medium', or 'low')
     
     Rules:
     🔴 HIGH RISK:
@@ -780,16 +781,9 @@ def infer_analytic(payload: AnalyticRequest):
     pred_label = label_encoder.inverse_transform(pred_idx)[0]
     user_category = TARGET_TO_CATEGORY_MAP.get(pred_label, "Unknown")
 
-    # Churn probability based on "Retention Offer" class
-    class_list = list(label_encoder.classes_)
-    try:
-        idx_ret = class_list.index('Retention Offer')
-        proba_all = clf.predict_proba(X)
-        churn_proba = float(proba_all[0][idx_ret])
-    except Exception:
-        churn_proba = 0.0
-
+    # Churn calculation using RULE-BASED logic (label only, no probability)
     churn_label = compute_churn_bucket(pred_label, customer_row, global_averages)
+    churn_proba = 0.0  # Not calculated anymore
 
     # Products + recommendations
     products_df = fetch_products()
@@ -878,17 +872,9 @@ def predict_new_user(payload: AnalyticRequest):
         pred_idx = clf.predict(X_new)
         pred_label = label_encoder.inverse_transform(pred_idx)[0]
         
-        # Churn probability
-        class_list = list(label_encoder.classes_)
-        try:
-            idx_ret = class_list.index('Retention Offer')
-            proba_all = clf.predict_proba(X_new)
-            churn_proba = float(proba_all[0][idx_ret])
-        except Exception:
-            churn_proba = 0.0
-        
-        # Churn risk level (rules-based)
+        # Churn calculation using RULE-BASED logic (label only, no probability)
         churn_risk = compute_churn_bucket(pred_label, user_profile, global_averages)
+        churn_proba = 0.0  # Not calculated anymore
         
         # Rekomendasi produk
         products_df = fetch_products()
@@ -1217,14 +1203,6 @@ def get_churn_composition():
         # 3. Predict all users
         all_preds_idx = clf.predict(X)
         all_labels = label_encoder.inverse_transform(all_preds_idx)
-
-        # Get churn probabilities
-        class_list = list(label_encoder.classes_)
-        try:
-            idx_ret = class_list.index('Retention Offer')
-            proba_all = clf.predict_proba(X)
-        except Exception:
-            proba_all = None
 
         # 4. Compute churn risk buckets untuk ALL users menggunakan RULES-BASED logic (sesuai notebook)
         churn_buckets = {'high': 0, 'medium': 0, 'low': 0}
